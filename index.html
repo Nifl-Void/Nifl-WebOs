@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NiflOS ᛟ Matrix Engine</title>
+  
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+  <style>
+    /* --- CSS PROMĚNNÉ --- */
+    :root {
+      --bg-dark: #030508;
+      --panel-bg: rgba(6, 11, 18, 0.90);
+      --border-cyan: #00f0ff;
+      --border-dim: #11293d;
+      --accent-gold: #bd9b5d;
+      --text-main: #e0e0e0;
+      --matrix-green: #00ff66;
+      --glow: rgba(189,155,93,0.3);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-dark); color: var(--text-main);
+      font-family: 'Courier New', Courier, monospace;
+      height: 100vh; overflow: hidden; user-select: none;
+    }
+
+    #matrix-canvas { position: fixed; top: 0; left: 0; z-index: -1; opacity: 0.25; }
+
+    /* --- OS UI --- */
+    .system-bar {
+      height: 45px; background: var(--panel-bg); border-bottom: 1px solid var(--border-cyan);
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 0 20px; backdrop-filter: blur(6px); position: relative; z-index: 1000;
+    }
+    .brand { color: var(--accent-gold); font-weight: bold; letter-spacing: 2px; }
+    .status-group { display: flex; align-items: center; gap: 15px; font-size: 0.85rem; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--matrix-green); box-shadow: 0 0 10px var(--matrix-green); }
+
+    /* --- PLOCHA A IKONY (KOLEČKA) --- */
+    .desktop { padding: 40px; display: flex; gap: 35px; position: relative; z-index: 5; flex-wrap: wrap; }
+    
+    .node-icon {
+      display: flex; flex-direction: column; align-items: center; width: 80px; 
+      cursor: pointer; transition: 0.2s;
+    }
+    
+    .rune-circle {
+      width: 65px; height: 65px; border-radius: 50%;
+      border: 1px solid var(--border-dim); background: var(--panel-bg);
+      display: flex; justify-content: center; align-items: center;
+      font-size: 2.2rem; color: var(--accent-gold); margin-bottom: 12px;
+      transition: all 0.3s ease;
+    }
+    
+    .node-icon .label {
+      font-size: 0.85rem; color: var(--text-main); letter-spacing: 1.5px; transition: 0.3s;
+    }
+
+    .node-icon:hover .rune-circle {
+      border-color: var(--border-cyan); transform: translateY(-3px); box-shadow: 0 0 15px var(--glow);
+    }
+    .node-icon:hover .label { color: var(--border-cyan); }
+
+    .node-icon.running .rune-circle {
+      border-color: var(--accent-gold);
+      background: rgba(189, 155, 93, 0.05);
+      box-shadow: 0 0 15px var(--glow), inset 0 0 10px rgba(189,155,93,0.1);
+      text-shadow: 0 0 15px var(--accent-gold);
+    }
+    .node-icon.running .label { color: var(--accent-gold); text-shadow: 0 0 5px var(--glow); }
+
+    /* --- OKNA --- */
+    .window {
+      position: absolute; top: 80px; left: 100px; width: 500px;
+      background: var(--panel-bg); border: 1px solid var(--border-cyan);
+      border-radius: 6px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+      display: none; flex-direction: column; backdrop-filter: blur(10px); z-index: 100;
+      overflow: hidden; 
+    }
+    .window.active { display: flex; }
+    .window-header {
+      padding: 12px 18px; background: rgba(0, 240, 255, 0.08); border-bottom: 1px solid var(--border-dim);
+      display: flex; justify-content: space-between; align-items: center;
+      color: var(--accent-gold); font-weight: bold; cursor: grab; z-index: 1000;
+    }
+    .window-header:active { cursor: grabbing; }
+    .close-btn { background: none; border: none; color: var(--text-main); cursor: pointer; font-size: 1.1rem; font-weight: bold; }
+    .close-btn:hover { color: #ff4444; }
+    .window-body { padding: 20px; position: relative; }
+
+    #pulseCanvas { width: 100%; height: 140px; background: #020305; border: 1px solid var(--border-dim); margin-top: 10px; }
+
+    /* --- KALKULAČKA --- */
+    #calc-display {
+      width: 100%; height: 60px; background: rgba(0,0,0,0.8);
+      border: 1px solid var(--border-dim); border-radius: 4px;
+      color: var(--matrix-green); font-size: 28px; text-align: right; 
+      padding: 10px 15px; margin-bottom: 15px; font-family: monospace; outline: none;
+    }
+    .calc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .calc-btn {
+      background: rgba(20,20,20,0.8); border: 1px solid var(--border-dim);
+      color: var(--text-main); font-size: 20px; padding: 15px 0; cursor: pointer;
+      transition: 0.2s; font-family: monospace; border-radius: 4px;
+    }
+    .calc-btn:hover { border-color: var(--accent-gold); color: var(--accent-gold); box-shadow: 0 0 15px var(--glow); transform: scale(1.05); }
+    .calc-btn-action { color: var(--border-cyan); }
+    .calc-btn-eval { background: rgba(189,155,93,0.1); border-color: var(--accent-gold); color: var(--accent-gold); grid-column: span 2; }
+    .calc-btn-clear { color: #ff4444; grid-column: span 2; }
+
+    /* --- TERMINÁL --- */
+    .terminal-container { background: #000; border: 1px solid var(--border-dim); border-radius: 4px; padding: 10px; height: 250px; display: flex; flex-direction: column; }
+    .terminal-output { flex-grow: 1; overflow-y: auto; color: var(--matrix-green); font-size: 14px; margin-bottom: 10px; user-select: text; line-height: 1.4; }
+    .terminal-input-line { display: flex; align-items: center; color: var(--accent-gold); }
+    .terminal-input { background: transparent; border: none; color: var(--matrix-green); font-family: monospace; font-size: 14px; width: 100%; outline: none; margin-left: 8px; }
+
+    /* --- POZNÁMKY --- */
+    #nifl-notes-area {
+      width: 100%; height: 200px; background: rgba(0, 0, 0, 0.6);
+      border: 1px solid var(--border-dim); border-radius: 4px;
+      color: var(--matrix-green); font-family: 'Courier New', Courier, monospace;
+      font-size: 14px; padding: 15px; resize: none; outline: none; transition: border-color 0.3s; line-height: 1.5;
+    }
+    #nifl-notes-area:focus { border-color: var(--accent-gold); }
+    .notes-toolbar { display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px; }
+    .notes-btn { background: rgba(20,20,20,0.5); border: 1px solid var(--border-dim); color: var(--text-main); padding: 8px 15px; cursor: pointer; font-size: 11px; letter-spacing: 2px; transition: 0.3s; }
+    .notes-btn:hover { border-color: var(--accent-gold); color: #fff; background: rgba(189,155,93,0.1); }
+    .notes-btn-primary { border-color: var(--accent-gold); color: var(--accent-gold); }
+
+    /* --- CHRONOS STYLY --- */
+    #chronos-win .window-body { height: 350px; display: flex; align-items: center; justify-content: center; }
+    .ripple-container { position: absolute; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 10; }
+    .ripple { position: absolute; border: 2px solid var(--accent-gold); border-radius: 50%; opacity: 0; box-shadow: 0 0 20px var(--glow); will-change: transform, opacity; }
+    @keyframes splash { 0% { width: 0; height: 0; opacity: 0.8; transform: scale(0); } 100% { width: 500px; height: 500px; opacity: 0; transform: scale(1); } }
+    .view-layer { position: absolute; display: flex; flex-direction: column; align-items: center; width: 100%; height: 100%; justify-content: center; transition: opacity 0.6s ease; }
+    .hidden { display: none !important; opacity: 0; pointer-events: none; }
+    .ghost-rune { position: absolute; pointer-events: none; z-index: 1; filter: blur(1px); will-change: transform, opacity; animation: drift 6s forwards ease-in-out; }
+    @keyframes drift { 0% { opacity: 0; transform: translateY(20px) scale(0.8); } 20% { opacity: var(--target-op); } 80% { opacity: var(--target-op); } 100% { opacity: 0; transform: translateY(-40px) scale(1.2); } }
+    .center-group { display: flex; flex-direction: column; align-items: center; cursor: pointer; z-index: 20; transition: 0.6s; }
+    .center-time { font-size: 40px; color: var(--accent-gold); letter-spacing: 5px; font-weight: bold; }
+    .current-rune-main { font-size: 25px; color: var(--text-main); margin-top: 5px; }
+    .rune-marker { position: absolute; font-size: 24px; color: #2a2a2a; transition: 0.6s; cursor: pointer; z-index: 20; }
+    .active-rune { color: var(--accent-gold) !important; filter: drop-shadow(0 0 8px var(--accent-gold)); }
+    .volva-input { background: rgba(10,10,10,0.8); border: 1px solid var(--border-dim); border-bottom: 1px solid var(--accent-gold); color: white; text-align: center; outline: none; margin-bottom: 30px; width: 200px; font-size: 16px; letter-spacing: 3px; padding: 10px; z-index: 30; }
+    .fate-rune-btn { font-size: 60px; color: var(--accent-gold); cursor: pointer; transition: 0.6s; z-index: 30; }
+    .fate-rune-btn:hover { text-shadow: 0 0 20px var(--glow); transform: scale(1.1); }
+    .calendar-box { width: 100%; text-align: center; z-index: 30; }
+    .days-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; color: #555; padding: 0 20px; font-size: 12px; }
+    .day.today { color: var(--accent-gold); border: 1px solid var(--accent-gold); background: rgba(212, 175, 55, 0.1); }
+    .oracle-box { position: absolute; top: 120%; width: 250px; padding: 15px; background: rgba(10,10,10,0.95); border: 1px solid var(--border-dim); color: var(--accent-gold); font-size: 12px; opacity: 0; transition: 1s; box-shadow: 0 0 20px var(--glow); }
+    .oracle-box.visible { opacity: 1; transform: translateY(0); }
+
+    /* --- LINK (SNĚM) --- */
+    #link-win .window-body { height: 400px; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle, rgba(10,10,10,0.9) 0%, rgba(5,5,5,0.6) 40%, rgba(0,0,0,0) 80%); }
+    .link-stars-container { position: relative; width: 350px; height: 350px; display: flex; align-items: center; justify-content: center; z-index: 4; }
+    @keyframes linkBreath { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.8; filter: drop-shadow(0 0 10px var(--glow)); } }
+    .link-star { position: absolute; font-size: 26px; color: var(--border-dim); transition: 0.8s; user-select: none; animation: linkBreath 8s ease-in-out infinite; }
+    .link-star.glow { color: var(--accent-gold); filter: drop-shadow(0 0 15px var(--accent-gold)); animation: none; opacity: 1; transform: scale(1.3); }
+    #linkCenterBtn { width: 80px; height: 80px; font-size: 30px; background: rgba(10,10,10,0.9); color: var(--accent-gold); border: 1px solid var(--border-dim); border-radius: 50%; cursor: pointer; z-index: 150; box-shadow: 0 0 20px rgba(0,0,0,1); transition: 0.5s; }
+    #linkCenterBtn:hover { transform: scale(1.1); border-color: var(--accent-gold); box-shadow: 0 0 30px var(--glow); }
+    #linkCenterBtn.locked { background: radial-gradient(circle, #1a0505, #000); color: #ff4444; border: 1px solid #ff0000; box-shadow: 0 0 25px rgba(255, 0, 0, 0.2); }
+    #linkCenterBtn.unlocked { background: #0a0a0a; color: var(--accent-gold); border: 1px solid var(--accent-gold); }
+    #linkInitBtn { z-index: 300; width: 90px; height: 90px; border-radius: 50%; background: transparent; border: 1px solid var(--accent-gold); color: var(--accent-gold); font-size: 35px; cursor: pointer; transition: 0.3s; }
+    #linkInitBtn:hover { background: rgba(189,155,93,0.1); box-shadow: 0 0 20px var(--glow); }
+    #link-ui-panel { position: absolute; width: 220px; height: 220px; background: rgba(10, 10, 10, 0.95); backdrop-filter: blur(10px); border: 1px solid var(--border-dim); border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 200; box-shadow: 0 0 40px var(--glow); }
+    #link-ui-panel input { background: transparent; border: none; border-bottom: 1px solid var(--border-dim); color: var(--text-main); padding: 8px; width: 70%; margin-bottom: 15px; text-align: center; font-size: 14px; outline: none; transition: 0.3s; }
+    #link-ui-panel input:focus { border-bottom: 1px solid var(--accent-gold); }
+    .link-menu-btn { background: rgba(20,20,20,0.5); border: 1px solid var(--border-dim); color: var(--text-main); padding: 8px 15px; cursor: pointer; width: 75%; margin: 5px 0; font-size: 11px; letter-spacing: 2px; transition: 0.3s; }
+    .link-menu-btn:hover { border-color: var(--accent-gold); color: #fff; background: rgba(189,155,93,0.1); transform: scale(1.05); }
+    #link-audio-container audio { display: none; }
+    #link-mic-btn { position: absolute; top: 15px; right: 15px; font-size: 24px; color: var(--border-dim); cursor: pointer; z-index: 250; transition: 0.2s ease-out; user-select: none; }
+    #link-mic-btn:hover { color: var(--text-main); }
+    #link-mic-visualizer { position: absolute; top: 45px; right: 20px; width: 12px; height: 100px; background: rgba(0,0,0,0.8); border: 1px solid var(--border-dim); border-radius: 6px; overflow: hidden; z-index: 250; transition: height 0.3s, opacity 0.3s; }
+    #link-mic-visualizer.hidden { height: 0; opacity: 0; pointer-events: none; }
+    #link-mic-level { position: absolute; bottom: 0; left: 0; width: 100%; height: 0%; background: var(--accent-gold); box-shadow: 0 0 10px var(--accent-gold); }
+  </style>
+</head>
+<body>
+
+  <canvas id="matrix-canvas"></canvas>
+
+  <header class="system-bar">
+    <div class="brand">ᛟ NIFL-VOID OS</div>
+    <div class="status-group">
+      <div class="status-dot"></div>
+      <span>Nifl-Link: UP</span>
+      <span>|</span>
+      <span id="sys-clock-top">00:00 UTC</span>
+    </div>
+  </header>
+
+  <!-- HLAVNÍ PLOCHA S KOLEČKY -->
+  <main class="desktop">
+    <div class="node-icon" data-action="open-win" data-target="pulse-win">
+      <div class="rune-circle">ᛈ</div><div class="label">Pulse</div>
+    </div>
+    <div class="node-icon" data-action="open-win" data-target="link-win">
+      <div class="rune-circle">ᛚ</div><div class="label">Link</div>
+    </div>
+    <div class="node-icon" data-action="open-win" data-target="chronos-win">
+      <div class="rune-circle" id="chronos-time-trigger" tabindex="0">ᛏ</div><div class="label">Chronos</div>
+    </div>
+    <div class="node-icon" data-action="open-win" data-target="notes-win">
+      <div class="rune-circle">ᚹ</div><div class="label">Notes</div>
+    </div>
+    <div class="node-icon" data-action="open-win" data-target="calc-win">
+      <div class="rune-circle">ᛣ</div><div class="label">Calc</div>
+    </div>
+    <div class="node-icon" data-action="open-win" data-target="term-win">
+      <div class="rune-circle">ᛟ</div><div class="label">Terminal</div>
+    </div>
+  </main>
+
+  <!-- OKNA SYSTÉMU -->
+  <div id="pulse-win" class="window">
+    <div class="window-header"><span>ᛈ System Telemetry</span><button class="close-btn" data-action="close-win" data-target="pulse-win">✕</button></div>
+    <div class="window-body"><canvas id="pulseCanvas" width="460" height="140"></canvas></div>
+  </div>
+
+  <div id="term-win" class="window" style="width: 600px; left: 650px;">
+    <div class="window-header"><span>ᛟ Nifl-Terminal</span><button class="close-btn" data-action="close-win" data-target="term-win">✕</button></div>
+    <div class="window-body">
+      <div class="terminal-container">
+        <div class="terminal-output" id="term-output">
+          <div>Nifl-Terminal v1.2. Přístup povolen.</div>
+          <div>Moduly připojeny. Napiš 'help' pro seznam příkazů.</div>
+        </div>
+        <div class="terminal-input-line">
+          <span>root@niflheim:~#</span>
+          <input type="text" id="term-input" class="terminal-input" autocomplete="off">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="notes-win" class="window" style="width: 450px; left: 300px; top: 180px;">
+    <div class="window-header"><span>ᚹ Nifl-Notes</span><button class="close-btn" data-action="close-win" data-target="notes-win">✕</button></div>
+    <div class="window-body">
+      <textarea id="nifl-notes-area" placeholder="Zadej myšlenku do prázdnoty..." spellcheck="false"></textarea>
+      <div class="notes-toolbar">
+        <button id="notes-clear-btn" class="notes-btn">VYMAZAT</button>
+        <button id="notes-save-btn" class="notes-btn notes-btn-primary">ULOŽIT</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="calc-win" class="window" style="width: 320px; left: 400px; top: 150px;">
+    <div class="window-header"><span>ᛣ Nifl-Calc</span><button class="close-btn" data-action="close-win" data-target="calc-win">✕</button></div>
+    <div class="window-body">
+      <input type="text" id="calc-display" readonly placeholder="0">
+      <div class="calc-grid">
+        <button class="calc-btn calc-btn-clear" data-action="clear">CLR</button>
+        <button class="calc-btn calc-btn-action" data-val="/">/</button>
+        <button class="calc-btn calc-btn-action" data-val="*">*</button>
+        
+        <button class="calc-btn" data-val="7">7</button>
+        <button class="calc-btn" data-val="8">8</button>
+        <button class="calc-btn" data-val="9">9</button>
+        <button class="calc-btn calc-btn-action" data-val="-">-</button>
+        
+        <button class="calc-btn" data-val="4">4</button>
+        <button class="calc-btn" data-val="5">5</button>
+        <button class="calc-btn" data-val="6">6</button>
+        <button class="calc-btn calc-btn-action" data-val="+">+</button>
+        
+        <button class="calc-btn" data-val="1">1</button>
+        <button class="calc-btn" data-val="2">2</button>
+        <button class="calc-btn" data-val="3">3</button>
+        <button class="calc-btn calc-btn-eval" style="grid-row: span 2;" data-action="eval">=</button>
+        
+        <button class="calc-btn" style="grid-column: span 2;" data-val="0">0</button>
+        <button class="calc-btn" data-val=".">.</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="chronos-win" class="window" style="width: 450px;">
+    <div class="window-header"><span>ᛏ Nifl-Chronos | Ghost Runes</span><button class="close-btn" data-action="close-win" data-target="chronos-win">✕</button></div>
+    <div class="window-body" id="chronos-body">
+      <div class="ripple-container"><div id="r1" class="ripple"></div><div id="r2" class="ripple"></div></div>
+      <div id="view-time" class="view-layer">
+          <div class="center-group">
+              <div id="clock-display" class="center-time">00:00</div>
+              <div id="main-current-rune" class="current-rune-main">ᚠ</div>
+          </div>
+          <div id="orbit-elements"></div>
+      </div>
+      <div id="view-volva" class="view-layer hidden">
+          <input type="text" id="birthInput" class="volva-input" placeholder="DD.MM.RRRR">
+          <div style="position: relative; display: flex; flex-direction: column; align-items: center;">
+              <div class="fate-rune-btn" id="volva-continue-btn">ᛟ</div>
+              <div id="oracle-box" class="oracle-box"></div>
+          </div>
+      </div>
+      <div id="view-cal" class="view-layer hidden">
+          <div class="calendar-box">
+              <div id="cal-month-name" style="font-size: 24px; color: var(--accent-gold); margin-bottom: 15px;">GÓI</div>
+              <div id="calendar-grid" class="days-grid"></div>
+              <div style="margin-top:15px; color:#555; cursor:pointer; font-size:20px;" id="geek-toggle" tabindex="0">ᚦ</div>
+          </div>
+          <div class="fate-rune-btn" style="font-size: 40px; margin-top: 20px;" id="calendar-back-btn">ᛉ</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="link-win" class="window" style="width: 500px; left: 350px; top: 150px;">
+    <div class="window-header"><span>ᛚ Nifl-Link | Rituální Sněm</span><button class="close-btn" data-action="close-win" data-target="link-win">✕</button></div>
+    <div class="window-body">
+      <div id="link-mic-btn" class="hidden">ᛗ</div>
+      <div id="link-mic-visualizer" class="hidden"><div id="link-mic-level"></div></div>
+      <div class="link-stars-container" id="linkStarsContainer">
+        <button id="linkCenterBtn" class="hidden">ᛟ</button>
+        <button id="linkInitBtn">ᛟ</button>
+        <div id="link-ui-panel" class="hidden">
+          <input type="text" id="linkRoomInput" placeholder="NÁZEV SNĚMU" maxlength="15">
+          <button class="link-menu-btn" id="linkBtnCreate">VYTVOŘIT</button>
+          <button class="link-menu-btn" id="linkBtnJoin">PŘIPOJIT SE</button>
+        </div>
+      </div>
+      <div id="link-audio-container"></div>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT LOGIKA -->
+  <script>
+    class NiflCalc {
+      constructor() {
+        this.display = document.getElementById('calc-display');
+        this.buttons = document.querySelectorAll('.calc-btn');
+        this.setupEvents();
+      }
+
+      safeEvaluate(expression) {
+        const normalized = expression.replace(/×/g, '*').replace(/÷/g, '/');
+        if (!/^[0-9+\-*/().%\s]+$/.test(normalized)) {
+          throw new Error('Invalid expression');
+        }
+        const result = Function('"use strict"; return (' + normalized + ');')();
+        if (!Number.isFinite(result)) {
+          throw new Error('Result is not finite');
+        }
+        return Number.isInteger(result) ? result : Number(result.toFixed(10));
+      }
+
+      setupEvents() {
+        this.buttons.forEach((button) => {
+          button.addEventListener('click', () => {
+            const value = button.dataset.val;
+            const action = button.dataset.action;
+
+            if (action === 'clear') {
+              this.display.value = '';
+              return;
+            }
+
+            if (action === 'eval') {
+              try {
+                const expression = this.display.value.trim();
+                if (!expression) return;
+                this.display.value = this.safeEvaluate(expression);
+              } catch (error) {
+                this.display.value = 'ERROR';
+                setTimeout(() => { this.display.value = ''; }, 1200);
+              }
+              return;
+            }
+
+            if (value) {
+              if (this.display.value === 'ERROR') {
+                this.display.value = '';
+              }
+              this.display.value += value;
+            }
+          });
+        });
+      }
+    }
+
+    class NiflNotes {
+      constructor() {
+        this.textarea = document.getElementById('nifl-notes-area');
+        this.saveBtn = document.getElementById('notes-save-btn');
+        this.clearBtn = document.getElementById('notes-clear-btn');
+        this.loadNotes();
+        this.saveBtn.addEventListener('click', () => this.saveNotes());
+        this.clearBtn.addEventListener('click', () => this.clearNotes());
+      }
+
+      saveNotes() {
+        try {
+          localStorage.setItem('nifl-notes-data', this.textarea.value);
+          this.saveBtn.textContent = 'ULOŽENO';
+        } catch (error) {
+          this.saveBtn.textContent = 'NENÍ K DISPOZICI';
+        }
+        setTimeout(() => { this.saveBtn.textContent = 'ULOŽIT'; }, 1500);
+      }
+
+      loadNotes() {
+        try {
+          const saved = localStorage.getItem('nifl-notes-data');
+          if (saved) { this.textarea.value = saved; }
+        } catch (error) {
+          console.warn('Notes storage unavailable:', error);
+        }
+      }
+
+      clearNotes() {
+        if (window.confirm('Opravdu vymazat všechny poznámky v prázdnotě?')) {
+          this.textarea.value = '';
+          try { localStorage.removeItem('nifl-notes-data'); } catch (error) {}
+        }
+      }
+    }
+
+    class NiflPulse {
+      constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+        this.dataPoints = new Array(40).fill(50);
+        this.lastUpdate = 0;
+        requestAnimationFrame((timestamp) => this.animate(timestamp));
+      }
+
+      animate(timestamp) {
+        if (timestamp - this.lastUpdate > 100) {
+          this.dataPoints.shift();
+          this.dataPoints.push(Math.floor(Math.random() * 45 + 25));
+          this.draw();
+          this.lastUpdate = timestamp;
+        }
+        requestAnimationFrame((nextTimestamp) => this.animate(nextTimestamp));
+      }
+
+      draw() {
+        const { width, height } = this.canvas;
+        this.ctx.clearRect(0, 0, width, height);
+        this.ctx.beginPath();
+        this.ctx.strokeStyle = '#00f0ff';
+        this.ctx.lineWidth = 2;
+
+        const step = width / (this.dataPoints.length - 1);
+        this.dataPoints.forEach((value, index) => {
+          const x = index * step;
+          const y = height - (value / 100) * height;
+          if (index === 0) { this.ctx.moveTo(x, y); } else { this.ctx.lineTo(x, y); }
+        });
+        this.ctx.stroke();
+      }
+    }
+
+    class NiflMatrix {
+      constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+        this.runes = 'ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛟᛞ';
+        this.fontSize = 16;
+        this.lastDrawTime = 0;
+        this.color = '#00f0ff';
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        requestAnimationFrame((timestamp) => this.animate(timestamp));
+      }
+
+      resize() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+        this.columns = Math.floor(this.canvas.width / this.fontSize);
+        this.drops = new Array(this.columns).fill(0);
+      }
+
+      animate(timestamp) {
+        if (timestamp - this.lastDrawTime > 50) {
+          this.ctx.fillStyle = 'rgba(3, 5, 8, 0.1)';
+          this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+          this.ctx.fillStyle = this.color;
+          this.ctx.font = `${this.fontSize}px monospace`;
+
+          for (let i = 0; i < this.drops.length; i += 1) {
+            const char = this.runes.charAt(Math.floor(Math.random() * this.runes.length));
+            this.ctx.fillText(char, i * this.fontSize, this.drops[i] * this.fontSize);
+            if (this.drops[i] * this.fontSize > this.canvas.height && Math.random() > 0.97) {
+              this.drops[i] = 0;
+            }
+            this.drops[i] += 1;
+          }
+          this.lastDrawTime = timestamp;
+        }
+        requestAnimationFrame((nextTimestamp) => this.animate(nextTimestamp));
+      }
+    }
+
+    class ChronosApp {
+      constructor() {
+        this.runes8 = ['ᚠ', 'ᚦ', 'ᚱ', 'ᚷ', 'ᚹ', 'ᚻ', 'ᚾ', 'ᛁ'];
+        this.runesAll = ['ᚠ', 'ᚦ', 'ᚱ', 'ᚷ', 'ᚹ', 'ᚻ', 'ᚾ', 'ᛁ', 'ᛃ', 'ᛈ', 'ᛇ', 'ᛉ', 'ᛊ', 'ᛏ', 'ᛒ', 'ᛖ', 'ᛗ', 'ᛚ', 'ᛜ', 'ᛟ', 'ᛞ'];
+        this.currentMode = 'time';
+        this.geekMode = false;
+        this.ghostInterval = null;
+        this.topClockEl = document.getElementById('sys-clock-top');
+
+        this.bindEvents();
+        this.init();
+      }
+
+      bindEvents() {
+        document.getElementById('chronos-time-trigger').addEventListener('click', () => this.switchView('to-volva'));
+        document.getElementById('volva-continue-btn').addEventListener('click', () => this.switchView('to-cal'));
+        document.getElementById('birthInput').addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') { this.generateFate(); }
+        });
+        document.getElementById('calendar-back-btn').addEventListener('click', () => this.switchView('to-time'));
+        document.getElementById('geek-toggle').addEventListener('click', () => this.toggleGeekMode());
+      }
+
+      init() {
+        this.initCircle();
+        this.update();
+        setInterval(() => this.update(), 1000);
+      }
+
+      initCircle() {
+        const orbit = document.getElementById('orbit-elements');
+        orbit.innerHTML = '';
+        this.runes8.forEach((rune, index) => {
+          const el = document.createElement('div');
+          el.className = 'rune-marker';
+          el.id = `rune-${index}`;
+          el.textContent = rune;
+          const angle = (index * 45 - 90) * Math.PI / 180;
+          const radius = 130;
+          el.style.left = `calc(50% + ${Math.cos(angle) * radius}px - 10px)`;
+          el.style.top = `calc(50% + ${Math.sin(angle) * radius}px - 10px)`;
+          orbit.appendChild(el);
+        });
+      }
+
+      spawnGhostRune() {
+        const chronosBody = document.getElementById('chronos-body');
+        const ghost = document.createElement('div');
+        ghost.className = 'ghost-rune';
+        ghost.textContent = this.runesAll[Math.floor(Math.random() * this.runesAll.length)];
+        ghost.style.left = `${Math.random() * 90}%`;
+        ghost.style.top = `${Math.random() * 90}%`;
+        const colors = ['#d4af37', '#ffffff', '#333333'];
+        ghost.style.color = colors[Math.floor(Math.random() * colors.length)];
+        ghost.style.fontSize = `${Math.random() * 30 + 15}px`;
+        ghost.style.setProperty('--target-op', `${Math.random() * 0.4 + 0.1}`);
+        chronosBody.appendChild(ghost);
+        setTimeout(() => ghost.remove(), 6000);
+      }
+
+      switchView(target) {
+        [1, 2].forEach((index) => {
+          const ripple = document.getElementById(`r${index}`);
+          if (!ripple) return;
+          ripple.style.animation = 'none';
+          ripple.offsetWidth;
+          ripple.style.animation = `splash 1.2s cubic-bezier(0.1, 0, 0.3, 1) ${index * 0.15}s forwards`;
+        });
+
+        setTimeout(() => {
+          document.querySelectorAll('#chronos-body .view-layer').forEach((layer) => {
+            layer.classList.add('hidden');
+          });
+          clearInterval(this.ghostInterval);
+
+          if (target === 'to-volva') {
+            document.getElementById('view-volva').classList.remove('hidden');
+            this.currentMode = 'volva';
+            this.ghostInterval = setInterval(() => this.spawnGhostRune(), 400);
+          } else if (target === 'to-cal') {
+            document.getElementById('view-cal').classList.remove('hidden');
+            this.renderCalendar();
+            this.currentMode = 'cal';
+            this.ghostInterval = setInterval(() => this.spawnGhostRune(), 350);
+          } else {
+            document.getElementById('view-time').classList.remove('hidden');
+            this.currentMode = 'time';
+            this.initCircle();
+            this.update();
+          }
+        }, 500);
+      }
+
+      renderCalendar() {
+        const now = new Date();
+        const grid = document.getElementById('calendar-grid');
+        grid.innerHTML = '';
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        for (let day = 1; day <= daysInMonth; day += 1) {
+          const cell = document.createElement('div');
+          cell.className = `day${day === now.getDate() ? ' today' : ''}`;
+          cell.textContent = this.geekMode ? this.runesAll[day % this.runesAll.length] : day;
+          grid.appendChild(cell);
+        }
+      }
+
+      toggleGeekMode() {
+        this.geekMode = !this.geekMode;
+        this.renderCalendar();
+      }
+
+      generateFate() {
+        const box = document.getElementById('oracle-box');
+        box.textContent = 'Osud vlní tvou cestu k nečekaným břehům.';
+        box.classList.add('visible');
+        for (let i = 0; i < 12; i += 1) {
+          setTimeout(() => this.spawnGhostRune(), i * 100);
+        }
+        setTimeout(() => box.classList.remove('visible'), 6000);
+      }
+
+      update() {
+        const now = new Date();
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        this.topClockEl.textContent = `${hours}:${minutes} UTC`;
+
+        if (this.currentMode !== 'time') return;
+        document.getElementById('clock-display').textContent = `${hours}:${minutes}`;
+        const runeIndex = Math.floor(now.getHours() / 3) % 8;
+        document.getElementById('main-current-rune').textContent = this.runes8[runeIndex];
+
+        for (let i = 0; i < 8; i += 1) {
+          const el = document.getElementById(`rune-${i}`);
+          if (el) { el.classList.toggle('active-rune', i === runeIndex); }
+        }
+      }
+    }
+
+    class LinkApp {
+      constructor() {
+        this.runes = ['ᚫ', 'ᚱ', 'ᚷ', 'ᛞ', 'ᛗ', 'ᛟ', 'ᚹ', 'ᚻ', 'ᚾ', 'ᛁ', 'ᛃ', 'ᛒ'];
+        this.myPeer = null;
+        this.myStream = null;
+        this.isHost = false;
+        this.isLocked = false;
+        this.connections = new Map();
+        this.starElements = [];
+        this.peerConfig = { config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } };
+        this.audioCtx = null;
+        this.analyser = null;
+        this.dataArray = null;
+        this.isMonitorVisible = false;
+
+        this.buildCircle();
+        this.bindEvents();
+        this.glowRandomRune();
+      }
+
+      bindEvents() {
+        const initBtn = document.getElementById('linkInitBtn');
+        const centerBtn = document.getElementById('linkCenterBtn');
+        const uiPanel = document.getElementById('link-ui-panel');
+        const micBtn = document.getElementById('link-mic-btn');
+        const micVis = document.getElementById('link-mic-visualizer');
+
+        initBtn.addEventListener('click', async () => {
+          try {
+            this.myStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            initBtn.classList.add('hidden');
+            uiPanel.classList.remove('hidden');
+            this.setupAudioAnalyser();
+            micBtn.classList.remove('hidden');
+          } catch (error) {
+            alert('Povolte mikrofon pro vstup do mlhy.');
+          }
+        });
+
+        micBtn.addEventListener('click', () => {
+          this.isMonitorVisible = !this.isMonitorVisible;
+          micVis.classList.toggle('hidden', !this.isMonitorVisible);
+        });
+
+        centerBtn.addEventListener('click', () => {
+          if (!this.isHost) return;
+          this.isLocked = !this.isLocked;
+          this.updateLockUI(this.isLocked);
+          this.connections.forEach((conn) => {
+            conn.send({ type: 'lock-state', locked: this.isLocked });
+          });
+        });
+
+        document.getElementById('linkBtnCreate').addEventListener('click', () => {
+          const roomId = document.getElementById('linkRoomInput').value.trim().toLowerCase();
+          if (roomId.length < 3) return;
+          this.isHost = true;
+          this.myPeer = new Peer(roomId, this.peerConfig);
+          this.myPeer.on('open', () => this.startSession());
+          this.myPeer.on('connection', (conn) => {
+            if (this.isLocked) { conn.close(); return; }
+            this.setupConnection(conn);
+            setTimeout(() => {
+              conn.send({ type: 'peer-list', peers: Array.from(this.connections.keys()) });
+              conn.send({ type: 'lock-state', locked: this.isLocked });
+            }, 500);
+          });
+          this.myPeer.on('call', (call) => {
+            if (this.myStream) { call.answer(this.myStream); }
+            this.handleCall(call);
+          });
+        });
+
+        document.getElementById('linkBtnJoin').addEventListener('click', () => {
+          const roomName = document.getElementById('linkRoomInput').value.trim().toLowerCase();
+          if (!roomName) return;
+          this.myPeer = new Peer(undefined, this.peerConfig);
+          this.myPeer.on('open', () => {
+            const conn = this.myPeer.connect(roomName);
+            this.setupConnection(conn);
+            this.startSession();
+          });
+          this.myPeer.on('call', (call) => {
+            if (this.myStream) { call.answer(this.myStream); }
+            this.handleCall(call);
+          });
+        });
+      }
+
+      setupAudioAnalyser() {
+        if (!this.myStream) return;
+        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        this.analyser = this.audioCtx.createAnalyser();
+        const source = this.audioCtx.createMediaStreamSource(this.myStream);
+        source.connect(this.analyser);
+        this.analyser.fftSize = 256;
+        this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+        this.updateMicLevel();
+      }
+
+      updateMicLevel() {
+        if (!this.analyser) return;
+        this.analyser.getByteFrequencyData(this.dataArray);
+        let sum = 0;
+        for (let i = 0; i < this.dataArray.length; i += 1) { sum += this.dataArray[i]; }
+        const percent = Math.min(100, (sum / this.dataArray.length / 128) * 100);
+        const micBtn = document.getElementById('link-mic-btn');
+        const levelBar = document.getElementById('link-mic-level');
+
+        if (percent > 2) {
+          micBtn.style.color = 'var(--accent-gold)';
+          micBtn.style.textShadow = `0 0 ${percent / 3}px var(--accent-gold)`;
+        } else {
+          micBtn.style.color = 'var(--border-dim)';
+          micBtn.style.textShadow = 'none';
+        }
+        if (this.isMonitorVisible) { levelBar.style.height = `${percent}%`; }
+        requestAnimationFrame(() => this.updateMicLevel());
+      }
+
+      buildCircle() {
+        const container = document.getElementById('linkStarsContainer');
+        for (let i = 0; i < 12; i += 1) {
+          const rune = document.createElement('div');
+          rune.className = 'link-star';
+          rune.textContent = this.runes[i];
+          const angle = (i * 360 / 12 - 90) * Math.PI / 180;
+          const radius = 150;
+          rune.style.left = `calc(50% + ${Math.cos(angle) * radius}px - 15px)`;
+          rune.style.top = `calc(50% + ${Math.sin(angle) * radius}px - 15px)`;
+          rune.style.animationDelay = `${i * 0.5}s`;
+          container.appendChild(rune);
+          this.starElements.push(rune);
+        }
+      }
+
+      updateLockUI(locked) {
+        const centerBtn = document.getElementById('linkCenterBtn');
+        centerBtn.classList.toggle('locked', locked);
+        centerBtn.classList.toggle('unlocked', !locked);
+        centerBtn.textContent = locked ? 'ᚦ' : 'ᛟ';
+      }
+
+      startSession() {
+        document.getElementById('link-ui-panel').classList.add('hidden');
+        const centerBtn = document.getElementById('linkCenterBtn');
+        centerBtn.classList.remove('hidden');
+        centerBtn.classList.add('unlocked');
+      }
+
+      setupConnection(conn) {
+        conn.on('open', () => {
+          this.connections.set(conn.peer, conn);
+          if (this.myStream && this.myPeer) { this.myPeer.call(conn.peer, this.myStream); }
+        });
+        conn.on('data', (data) => {
+          if (data.type === 'peer-list') {
+            data.peers.forEach((peer) => {
+              if (peer !== this.myPeer.id && !this.connections.has(peer)) {
+                const nextConnection = this.myPeer.connect(peer);
+                this.setupConnection(nextConnection);
+              }
+            });
+          }
+          if (data.type === 'lock-state') { this.updateLockUI(data.locked); }
+        });
+      }
+
+      handleCall(call) {
+        call.on('stream', (remoteStream) => {
+          let audioElement = document.getElementById(`audio-${call.peer}`);
+          if (!audioElement) {
+            audioElement = document.createElement('audio');
+            audioElement.id = `audio-${call.peer}`;
+            audioElement.autoplay = true;
+            document.getElementById('link-audio-container').appendChild(audioElement);
+          }
+          audioElement.srcObject = remoteStream;
+        });
+      }
+
+      glowRandomRune() {
+        const target = this.starElements[Math.floor(Math.random() * this.starElements.length)];
+        if (target && !target.classList.contains('glow')) {
+          target.classList.add('glow');
+          setTimeout(() => target.classList.remove('glow'), 2500);
+        }
+        setTimeout(() => this.glowRandomRune(), 1200 + Math.random() * 2000);
+      }
+    }
+
+    class NiflLinkTerminal {
+      constructor(inputId, outputId) {
+        this.inputEl = document.getElementById(inputId);
+        this.outputEl = document.getElementById(outputId);
+        this.isBusy = false;
+        this.setupEvents();
+      }
+
+      setupEvents() {
+        this.inputEl.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter') return;
+          const raw = this.inputEl.value.trim().toLowerCase();
+          this.inputEl.value = '';
+          if (!raw) return;
+
+          if (this.isBusy) {
+            this.printLine('[!] Modul pracuje. Počkej na dokončení procesu.', '#e53e3e');
+            return;
+          }
+          this.printLine(`root@niflheim:~# ${raw}`, '#d4af37');
+          this.processCommand(raw);
+        });
+      }
+
+      printLine(text, color = '#00ff66') {
+        const line = document.createElement('div');
+        line.textContent = text;
+        line.style.color = color;
+        this.outputEl.appendChild(line);
+        this.outputEl.scrollTop = this.outputEl.scrollHeight;
+      }
+
+      sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+      async simulateWifiScan() {
+        this.isBusy = true;
+        this.printLine('Iniciuji modul Heimdall...', '#00f0ff');
+        this.printLine('Přepínám anténu na monitorovací režim (802.11)...');
+        await this.sleep(1200);
+        const networks = [
+          { ssid: 'Valhalla_Guest_5G', sig: '-42 dBm', enc: 'WPA3' },
+          { ssid: 'Midgard_Public', sig: '-88 dBm', enc: 'OPEN' },
+        ];
+        for (const net of networks) {
+          this.printLine('Zachytávám pakety v okolí...');
+          await this.sleep(800 + Math.random() * 500);
+          this.printLine(`[NALEZENO] SSID: ${net.ssid} | Signál: ${net.sig} | Šifrování: ${net.enc}`, '#00ff66');
+        }
+        await this.sleep(500);
+        this.printLine('Skenování Wi-Fi frekvencí dokončeno.', '#00f0ff');
+        this.isBusy = false;
+      }
+
+      async realBluetoothScan() {
+        this.printLine('Aktivuji rituál hledání fyzických Bluetooth zařízení...', '#00f0ff');
+        if (!navigator.bluetooth) {
+          this.printLine('Tvé rozhraní nepodporuje Web Bluetooth API.', '#e53e3e');
+          return;
+        }
+        try {
+          this.printLine('Čekám na výběr zařízení...', '#d4af37');
+          const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
+          this.printLine(`[ÚSPĚCH] Nalezeno zařízení: ${device.name || 'Neznámé'}`, '#00ff66');
+        } catch (error) {
+          this.printLine(`Zrušeno: ${error.message}`, '#e53e3e');
+        }
+      }
+
+      async simulatePingScan(target) {
+        this.isBusy = true;
+        const scanTarget = target ? target.toUpperCase() : 'OKOLNÍ PRÁZDNOTU';
+        this.printLine(`Skenuji uzly: ${scanTarget}...`, '#00f0ff');
+        await this.sleep(800);
+        const fakeNodes = [
+          { ip: '192.168.0.ᚠ', status: 'Online', ms: 12 },
+          { ip: '10.0.0.ᚢ', status: 'Offline', ms: 'ERR' },
+        ];
+        for (const node of fakeNodes) {
+          this.printLine(`Pinging node [${node.ip}]...`);
+          await this.sleep(400 + Math.random() * 600);
+          if (node.status === 'Online') {
+            this.printLine(`---> Odpověď: time=${node.ms}ms status=${node.status}`);
+          } else {
+            this.printLine('---> Odpověď: timeout. Uzel neodpovídá.', '#e53e3e');
+          }
+        }
+        this.printLine('Skenování dokončeno.', '#00f0ff');
+        this.isBusy = false;
+      }
+
+      processCommand(raw) {
+        const [command, arg] = raw.split(' ');
+        switch (command) {
+          case 'help':
+            this.printLine('Dostupné příkazy NiflOS:');
+            this.printLine(' - status : Vypíše stav aktivních modulů');
+            this.printLine(' - scan [wifi/bt/ping] : Oskenuje sítě a zařízení');
+            this.printLine(' - open [pulse/chronos/link/term/notes/calc] : Otevře okno');
+            this.printLine(' - clear : Vyčistí obrazovku');
+            break;
+          case 'scan':
+            if (arg === 'wifi') { this.simulateWifiScan(); }
+            else if (arg === 'bt') { this.realBluetoothScan(); }
+            else { this.simulatePingScan(arg); }
+            break;
+          case 'status':
+            this.printLine('[OK] Všechny moduly připojeny k Yggdrasilu.');
+            break;
+          case 'clear':
+            this.outputEl.innerHTML = '';
+            break;
+          case 'open': {
+            if (['pulse', 'chronos', 'link', 'term', 'notes', 'calc'].includes(arg)) {
+              const winMap = {
+                pulse: 'pulse-win',
+                chronos: 'chronos-win',
+                link: 'link-win',
+                term: 'term-win',
+                notes: 'notes-win',
+                calc: 'calc-win',
+              };
+              const targetWin = document.getElementById(winMap[arg]);
+              if (targetWin) {
+                targetWin.classList.add('active');
+                window.NiflOS.wm.bringToFront(targetWin);
+                window.NiflOS.wm.updateIconState(winMap[arg], true);
+              }
+              this.printLine(`Otevírám modul: ${arg}`);
+            } else {
+              this.printLine('Neznámý modul.', '#e53e3e');
+            }
+            break;
+          }
+          default:
+            this.printLine(`Neznámý příkaz. Napiš 'help'.`, '#e53e3e');
+        }
+      }
+    }
+
+    class WindowManager {
+      constructor() {
+        this.dragged = null;
+        this.ox = 0;
+        this.oy = 0;
+        this.highestZ = 100;
+
+        document.addEventListener('click', (event) => {
+          const button = event.target.closest('[data-action]');
+          if (!button) return;
+          const target = document.getElementById(button.dataset.target);
+          if (!target) return;
+
+          if (button.dataset.action === 'open-win') {
+            target.classList.add('active');
+            this.bringToFront(target);
+            this.updateIconState(button.dataset.target, true);
+          }
+          if (button.dataset.action === 'close-win') {
+            target.classList.remove('active');
+            this.updateIconState(button.dataset.target, false);
+          }
+        });
+
+        document.addEventListener('mousedown', (event) => {
+          const win = event.target.closest('.window');
+          if (win) { this.bringToFront(win); }
+          if (event.target.closest('.window-header') && !event.target.closest('.close-btn')) {
+            this.dragged = win;
+            const rect = this.dragged.getBoundingClientRect();
+            this.ox = event.clientX - rect.left;
+            this.oy = event.clientY - rect.top;
+          }
+        });
+
+        document.addEventListener('mousemove', (event) => {
+          if (!this.dragged) return;
+          let newX = event.clientX - this.ox;
+          let newY = event.clientY - this.oy;
+          const rect = this.dragged.getBoundingClientRect();
+          const maxX = window.innerWidth - rect.width;
+          const maxY = window.innerHeight - rect.height;
+
+          newX = Math.min(Math.max(newX, 0), maxX);
+          newY = Math.min(Math.max(newY, 0), maxY);
+
+          this.dragged.style.left = `${newX}px`;
+          this.dragged.style.top = `${newY}px`;
+        });
+
+        document.addEventListener('mouseup', () => {
+          this.dragged = null;
+        });
+      }
+
+      bringToFront(winElement) {
+        this.highestZ += 1;
+        winElement.style.zIndex = String(this.highestZ);
+      }
+
+      updateIconState(targetId, isActive) {
+        const icon = document.querySelector(`.node-icon[data-target="${targetId}"]`);
+        if (!icon) return;
+        if (isActive) { icon.classList.add('running'); } else { icon.classList.remove('running'); }
+      }
+    }
+
+    // --- GLOBÁLNÍ INICIALIZACE SYSTÉMU ---
+    window.NiflOS = {
+      matrix: null,
+      pulse: null,
+      terminal: null,
+      notes: null,
+      calc: null,
+      wm: null,
+      chronos: null,
+      link: null,
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+      window.NiflOS.chronos = new ChronosApp();
+      window.NiflOS.link = new LinkApp();
+      window.NiflOS.matrix = new NiflMatrix('matrix-canvas');
+      window.NiflOS.pulse = new NiflPulse('pulseCanvas');
+      window.NiflOS.terminal = new NiflLinkTerminal('term-input', 'term-output');
+      window.NiflOS.notes = new NiflNotes();
+      window.NiflOS.calc = new NiflCalc();
+      window.NiflOS.wm = new WindowManager();
+    });
+  </script>
+</body>
+</html>
